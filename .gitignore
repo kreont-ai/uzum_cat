@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Секреты и локальные данные — не коммитить
+captured_requests.json
+request_template.json
+config.yaml
+uzum_cat.db
+*.csv
+
+.pytest_cache/
+*.egg-info/

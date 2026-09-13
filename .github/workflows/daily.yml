@@ -1,0 +1,40 @@
+name: daily-harvest
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC каждый день — подправь под удобное время
+  workflow_dispatch: {}
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Restore request_template.json from secret
+        env:
+          REQUEST_TEMPLATE_JSON: ${{ secrets.REQUEST_TEMPLATE_JSON }}
+        run: printf '%s' "$REQUEST_TEMPLATE_JSON" > request_template.json
+
+      - name: Harvest category snapshot
+        id: harvest
+        run: |
+          mkdir -p snapshots
+          csv_path="snapshots/$(date -u +%F).csv"
+          uzum-cat harvest --csv "$csv_path"
+          echo "csv_path=$csv_path" >> "$GITHUB_OUTPUT"
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "uzum-cat-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f uzum_cat.db "${{ steps.harvest.outputs.csv_path }}" || true
+          git diff --cached --quiet || git commit -m "Daily snapshot $(date -u +%F)"
+          git push

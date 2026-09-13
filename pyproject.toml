@@ -1,0 +1,26 @@
+[project]
+name = "uzum-cat"
+version = "0.1.0"
+description = "Мониторинг цен/рейтингов категории Uzum Market через неофициальное клиентское API"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "playwright>=1.40",
+    "requests>=2.31",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+uzum-cat = "uzum_cat.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,114 @@
+"""CLI: uzum-cat discover|harvest|export.
+
+Примеры:
+    uzum-cat discover "https://uzum.uz/ru/category/zhenshchinam-1"
+    uzum-cat harvest --category-url "https://uzum.uz/ru/category/zhenshchinam-1"
+    uzum-cat export --csv snapshot.csv
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+from .client import TokenExpiredError, iter_products, load_template
+from .config import HarvestConfig
+from .discovery import discover
+from .storage import connect, export_csv, save_snapshot
+
+
+def _add_common_paths(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--template", type=Path, default=Path("request_template.json"),
+        help="Путь к шаблону запроса (по умолчанию request_template.json)",
+    )
+    parser.add_argument(
+        "--db", type=Path, default=Path("uzum_cat.db"),
+        help="Путь к SQLite-базе снапшотов (по умолчанию uzum_cat.db)",
+    )
+
+
+def cmd_discover(args: argparse.Namespace) -> None:
+    asyncio.run(
+        discover(
+            category_url=args.category_url,
+            captured_path=args.captured,
+            template_path=args.template,
+            headless=args.headless,
+        )
+    )
+
+
+def cmd_harvest(args: argparse.Namespace) -> None:
+    template = load_template(args.template)
+    config = HarvestConfig.load(args.config)
+
+    conn = connect(args.db)
+    all_products: list[dict] = []
+    try:
+        for page in iter_products(template, config):
+            all_products.extend(page)
+    except TokenExpiredError as e:
+        sys.exit(str(e))
+
+    if not all_products:
+        print("Ничего не собрано — проверь request_template.json и структуру ответа API.")
+        return
+
+    category_url = args.category_url or template.get("url", "")
+    snapshot_id = save_snapshot(conn, category_url, all_products)
+    print(f"\nСнапшот #{snapshot_id}: {len(all_products)} товаров сохранено в {args.db.resolve()}")
+
+    if args.csv:
+        n = export_csv(conn, args.csv, snapshot_id=snapshot_id)
+        print(f"Также экспортировано {n} строк в {args.csv.resolve()}")
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    conn = connect(args.db)
+    n = export_csv(conn, args.csv, snapshot_id=args.snapshot_id)
+    print(f"Экспортировано {n} строк в {args.csv.resolve()}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="uzum-cat", description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_discover = sub.add_parser("discover", help="Захватить реальный запрос листинга товаров")
+    p_discover.add_argument("category_url", help="URL страницы категории на uzum.uz")
+    p_discover.add_argument("--captured", type=Path, default=Path("captured_requests.json"))
+    p_discover.add_argument("--template", type=Path, default=Path("request_template.json"))
+    p_discover.add_argument(
+        "--headless", action="store_true",
+        help="Запустить браузер в headless-режиме (по умолчанию выключено — так проще пройти анти-бот проверки)",
+    )
+    p_discover.set_defaults(func=cmd_discover)
+
+    p_harvest = sub.add_parser("harvest", help="Собрать снапшот категории")
+    _add_common_paths(p_harvest)
+    p_harvest.add_argument("--config", type=Path, default=Path("config.yaml"))
+    p_harvest.add_argument("--csv", type=Path, default=None, help="Дополнительно экспортировать этот снапшот в CSV")
+    p_harvest.add_argument(
+        "--category-url", default=None,
+        help="URL категории для записи в БД (по умолчанию берётся из request_template.json)",
+    )
+    p_harvest.set_defaults(func=cmd_harvest)
+
+    p_export = sub.add_parser("export", help="Экспортировать накопленную историю снапшотов в CSV")
+    p_export.add_argument("--db", type=Path, default=Path("uzum_cat.db"))
+    p_export.add_argument("--csv", type=Path, default=Path("uzum_cat_export.csv"))
+    p_export.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — вся история)")
+    p_export.set_defaults(func=cmd_export)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
