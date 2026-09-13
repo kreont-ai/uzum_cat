@@ -32,8 +32,11 @@ class Summary:
     with_rating: RatingStats = field(default_factory=RatingStats)
     total_reviews: int = 0
     missing_shop: int = 0
+    with_orders: int = 0
+    total_orders: int = 0
     price_buckets: list[tuple[str, int]] = field(default_factory=list)
     top_by_reviews: list[dict] = field(default_factory=list)
+    top_by_orders: list[dict] = field(default_factory=list)
     top_by_price: list[dict] = field(default_factory=list)
     cheapest: list[dict] = field(default_factory=list)
 
@@ -84,7 +87,7 @@ def compute_summary(
 
     rows = conn.execute(
         f"""
-        SELECT product_id, title, price, rating, reviews_count, shop
+        SELECT product_id, title, price, rating, reviews_count, shop, orders_count
         FROM products
         {where}
         """,
@@ -96,11 +99,14 @@ def compute_summary(
     prices = [r[2] for r in rows if r[2] is not None]
     ratings = [r[3] for r in rows if r[3] is not None]
     reviews = [r[4] for r in rows if r[4] is not None]
+    orders = [r[6] for r in rows if r[6] is not None]
 
     summary.with_price = _price_stats(prices)
     summary.with_rating = _rating_stats(ratings)
     summary.total_reviews = sum(reviews)
     summary.missing_shop = sum(1 for r in rows if not r[5])
+    summary.with_orders = len(orders)
+    summary.total_orders = sum(orders)
     summary.price_buckets = _price_histogram(prices)
 
     def as_dict(r: tuple) -> dict:
@@ -110,10 +116,14 @@ def compute_summary(
             "price": r[2],
             "rating": r[3],
             "reviews_count": r[4],
+            "orders_count": r[6],
         }
 
     by_reviews = sorted((r for r in rows if r[4] is not None), key=lambda r: r[4], reverse=True)
     summary.top_by_reviews = [as_dict(r) for r in by_reviews[:top_n]]
+
+    by_orders = sorted((r for r in rows if r[6] is not None), key=lambda r: r[6], reverse=True)
+    summary.top_by_orders = [as_dict(r) for r in by_orders[:top_n]]
 
     by_price_desc = sorted((r for r in rows if r[2] is not None), key=lambda r: r[2], reverse=True)
     summary.top_by_price = [as_dict(r) for r in by_price_desc[:top_n]]
@@ -148,6 +158,11 @@ def format_summary(summary: Summary, category_url: str | None = None) -> str:
         lines.append("Рейтинг: данных нет")
 
     lines.append(f"Суммарно отзывов по категории: {summary.total_reviews:,}")
+    if summary.with_orders:
+        lines.append(
+            f"Заказы (по {summary.with_orders} из {summary.total_products} товаров, "
+            f"остальные не обогащены `uzum-cat enrich-orders`): {summary.total_orders:,}"
+        )
     if summary.missing_shop == summary.total_products and summary.total_products:
         lines.append("Магазин: API этого запроса не отдаёт продавца ни по одному товару")
     elif summary.missing_shop:
@@ -168,8 +183,12 @@ def format_summary(summary: Summary, category_url: str | None = None) -> str:
             price = f"{it['price']:,.0f}" if it["price"] is not None else "?"
             rating = it["rating"] if it["rating"] is not None else "?"
             reviews = it["reviews_count"] if it["reviews_count"] is not None else "?"
-            lines.append(f"  {i:>2}. {it['title'][:60]} — {price} сум, рейтинг {rating}, {reviews} отзывов")
+            orders = it.get("orders_count")
+            orders_part = f", {orders} заказов" if orders is not None else ""
+            lines.append(f"  {i:>2}. {it['title'][:60]} — {price} сум, рейтинг {rating}, {reviews} отзывов{orders_part}")
 
+    if summary.top_by_orders:
+        render_top("Топ по числу заказов:", summary.top_by_orders)
     render_top("Топ по числу отзывов:", summary.top_by_reviews)
     render_top("Самые дорогие:", summary.top_by_price)
     render_top("Самые дешёвые:", summary.cheapest)

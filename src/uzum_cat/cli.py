@@ -16,7 +16,8 @@ from .analytics import compute_summary, format_summary
 from .client import TokenExpiredError, iter_products, load_template
 from .config import HarvestConfig
 from .discovery import discover
-from .storage import connect, export_csv, save_snapshot
+from .product_detail import fetch_orders_for_products
+from .storage import connect, export_csv, get_product_ids, save_snapshot, set_orders_count
 
 
 def _add_common_paths(parser: argparse.ArgumentParser) -> None:
@@ -89,6 +90,25 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     print(format_summary(summary, category_url=category_url))
 
 
+def cmd_enrich_orders(args: argparse.Namespace) -> None:
+    conn = connect(args.db)
+    product_ids = get_product_ids(conn, snapshot_id=args.snapshot_id)
+    if not product_ids:
+        print("Нет товаров для обогащения — сначала прогони `uzum-cat harvest`.")
+        return
+
+    print(f"Забираю число заказов по {len(product_ids)} товарам (пауза {args.delay}с между запросами)...")
+    ok = 0
+    for i, detail in enumerate(fetch_orders_for_products(product_ids, delay_seconds=args.delay)):
+        set_orders_count(conn, detail.product_id, detail.orders_amount)
+        if detail.orders_amount is not None:
+            ok += 1
+        if (i + 1) % 50 == 0:
+            print(f"  ...{i + 1}/{len(product_ids)}")
+
+    print(f"Готово: заказы получены для {ok} из {len(product_ids)} товаров.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="uzum-cat", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -124,6 +144,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_analyze.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — вся накопленная история)")
     p_analyze.add_argument("--top", type=int, default=10, help="Сколько строк показывать в топ-списках")
     p_analyze.set_defaults(func=cmd_analyze)
+
+    p_enrich = sub.add_parser(
+        "enrich-orders",
+        help="Добавить число заказов (ordersAmount) к уже собранным товарам — по одному HTTP-запросу на товар",
+    )
+    p_enrich.add_argument("--db", type=Path, default=Path("uzum_cat.db"))
+    p_enrich.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — все товары в БД)")
+    p_enrich.add_argument("--delay", type=float, default=1.5, help="Пауза между запросами, секунд (не убирать/не уменьшать сильно)")
+    p_enrich.set_defaults(func=cmd_enrich_orders)
 
     return parser
 

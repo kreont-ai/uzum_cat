@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS products (
     rating REAL,
     reviews_count INTEGER,
     shop TEXT,
+    orders_count INTEGER,
     raw_json TEXT NOT NULL
 );
 
@@ -42,7 +43,18 @@ CREATE INDEX IF NOT EXISTS idx_products_product_id ON products(product_id);
 def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Добавляет колонки, появившиеся после первого релиза схемы, в уже
+    существующие базы (CREATE TABLE IF NOT EXISTS их не тронет).
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(products)")}
+    if "orders_count" not in existing:
+        conn.execute("ALTER TABLE products ADD COLUMN orders_count INTEGER")
+        conn.commit()
 
 
 def save_snapshot(conn: sqlite3.Connection, category_url: str, products: list[dict]) -> int:
@@ -76,6 +88,28 @@ def save_snapshot(conn: sqlite3.Connection, category_url: str, products: list[di
     return snapshot_id
 
 
+def get_product_ids(conn: sqlite3.Connection, snapshot_id: int | None = None) -> list[int]:
+    """product_id хранится как TEXT (см. save_snapshot) — фильтруем нечисловые
+    и возвращаем int, чтобы дальше можно было построить URL товара.
+    """
+    where = "WHERE snapshot_id = ?" if snapshot_id is not None else ""
+    params: tuple = (snapshot_id,) if snapshot_id is not None else ()
+    rows = conn.execute(f"SELECT DISTINCT product_id FROM products {where}", params).fetchall()
+    ids = []
+    for (pid,) in rows:
+        if pid and pid.isdigit():
+            ids.append(int(pid))
+    return ids
+
+
+def set_orders_count(conn: sqlite3.Connection, product_id: int, orders_count: int | None) -> None:
+    conn.execute(
+        "UPDATE products SET orders_count = ? WHERE product_id = ?",
+        (orders_count, str(product_id)),
+    )
+    conn.commit()
+
+
 def export_csv(conn: sqlite3.Connection, csv_path: Path, snapshot_id: int | None = None) -> int:
     """Экспортирует products (+ дата снапшота) в CSV. По умолчанию — весь
     накопленный история; передай snapshot_id, чтобы выгрузить только один
@@ -83,7 +117,7 @@ def export_csv(conn: sqlite3.Connection, csv_path: Path, snapshot_id: int | None
     """
     query = """
         SELECT s.captured_at, s.category_url, p.product_id, p.title, p.price,
-               p.rating, p.reviews_count, p.shop
+               p.rating, p.reviews_count, p.shop, p.orders_count
         FROM products p
         JOIN snapshots s ON s.id = p.snapshot_id
     """
@@ -96,7 +130,7 @@ def export_csv(conn: sqlite3.Connection, csv_path: Path, snapshot_id: int | None
     rows = conn.execute(query, params).fetchall()
     headers = [
         "captured_at", "category_url", "product_id", "title",
-        "price", "rating", "reviews_count", "shop",
+        "price", "rating", "reviews_count", "shop", "orders_count",
     ]
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
