@@ -12,3 +12,4 @@ uzum_cat.db
 
 .pytest_cache/
 *.egg-info/
+.claude/

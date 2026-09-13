@@ -92,7 +92,9 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
 def cmd_enrich_orders(args: argparse.Namespace) -> None:
     conn = connect(args.db)
-    product_ids = get_product_ids(conn, snapshot_id=args.snapshot_id)
+    product_ids = get_product_ids(
+        conn, snapshot_id=args.snapshot_id, missing_orders_only=args.missing_only
+    )
     if not product_ids:
         print("Нет товаров для обогащения — сначала прогони `uzum-cat harvest`.")
         return
@@ -152,6 +154,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_enrich.add_argument("--db", type=Path, default=Path("uzum_cat.db"))
     p_enrich.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — все товары в БД)")
     p_enrich.add_argument("--delay", type=float, default=1.5, help="Пауза между запросами, секунд (не убирать/не уменьшать сильно)")
+    p_enrich.add_argument(
+        "--missing-only", action="store_true",
+        help="Пропустить товары, для которых число заказов уже получено (дозабрать после сбоя)",
+    )
     p_enrich.set_defaults(func=cmd_enrich_orders)
 
     return parser

@@ -37,12 +37,25 @@ class ProductDetail:
     orders_amount: int | None
 
 
-def fetch_orders_amount(product_id: int, timeout: float = 20.0) -> ProductDetail:
+def fetch_orders_amount(product_id: int, timeout: float = 20.0, retries: int = 2) -> ProductDetail:
+    """Тянет страницу товара и достаёт ordersAmount.
+
+    Замечено вживую: примерно 1 из 5 запросов к одному и тому же товару
+    возвращает валидный (200 OK, полноразмерный) HTML, но без блока pdp —
+    похоже на нестабильность рендера/кеша на стороне Uzum, а не признак
+    того, что у товара действительно нет этого поля. Поэтому при пустом
+    результате пробуем ещё раз перед тем, как сдаться.
+    """
     url = f"https://uzum.uz/ru/product/x-{product_id}"
-    resp = requests.get(url, headers=_HEADERS, timeout=timeout)
-    resp.raise_for_status()
-    m = _ORDERS_AMOUNT_RE.search(resp.text)
-    return ProductDetail(product_id=product_id, orders_amount=int(m.group(1)) if m else None)
+    for attempt in range(retries + 1):
+        resp = requests.get(url, headers=_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        m = _ORDERS_AMOUNT_RE.search(resp.text)
+        if m:
+            return ProductDetail(product_id=product_id, orders_amount=int(m.group(1)))
+        if attempt < retries:
+            time.sleep(1.0)
+    return ProductDetail(product_id=product_id, orders_amount=None)
 
 
 def extract_orders_amount(html: str) -> int | None:
