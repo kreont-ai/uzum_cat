@@ -12,6 +12,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from .analytics import compute_summary, format_summary
 from .client import TokenExpiredError, iter_products, load_template
 from .config import HarvestConfig
 from .discovery import discover
@@ -71,6 +72,23 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Экспортировано {n} строк в {args.csv.resolve()}")
 
 
+def cmd_analyze(args: argparse.Namespace) -> None:
+    conn = connect(args.db)
+    summary = compute_summary(conn, snapshot_id=args.snapshot_id, top_n=args.top)
+    if summary.total_products == 0:
+        print("В базе нет данных — сначала прогони `uzum-cat harvest`.")
+        return
+
+    category_url = None
+    if args.snapshot_id is not None:
+        row = conn.execute(
+            "SELECT category_url FROM snapshots WHERE id = ?", (args.snapshot_id,)
+        ).fetchone()
+        category_url = row[0] if row else None
+
+    print(format_summary(summary, category_url=category_url))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="uzum-cat", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -100,6 +118,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--csv", type=Path, default=Path("uzum_cat_export.csv"))
     p_export.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — вся история)")
     p_export.set_defaults(func=cmd_export)
+
+    p_analyze = sub.add_parser("analyze", help="Показать аналитику по накопленным снапшотам (цены, рейтинги, топы)")
+    p_analyze.add_argument("--db", type=Path, default=Path("uzum_cat.db"))
+    p_analyze.add_argument("--snapshot-id", type=int, default=None, help="Только один снапшот (по умолчанию — вся накопленная история)")
+    p_analyze.add_argument("--top", type=int, default=10, help="Сколько строк показывать в топ-списках")
+    p_analyze.set_defaults(func=cmd_analyze)
 
     return parser
 
