@@ -10,21 +10,21 @@ def make_conn() -> sqlite3.Connection:
     return conn
 
 
-def insert(conn, snapshot_id, product_id, title, price, rating, reviews_count, shop=None):
+def insert(conn, snapshot_id, product_id, title, price, rating, reviews_count, shop=None, orders_count=None):
     conn.execute(
         """
-        INSERT INTO products (snapshot_id, product_id, title, price, rating, reviews_count, shop, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, '{}')
+        INSERT INTO products (snapshot_id, product_id, title, price, rating, reviews_count, shop, orders_count, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}')
         """,
-        (snapshot_id, product_id, title, price, rating, reviews_count, shop),
+        (snapshot_id, product_id, title, price, rating, reviews_count, shop, orders_count),
     )
 
 
 def test_compute_summary_basic_stats():
     conn = make_conn()
     conn.execute("INSERT INTO snapshots (category_url, captured_at) VALUES ('u', 't')")
-    insert(conn, 1, "1", "Cheap", 100, 4.0, 5)
-    insert(conn, 1, "2", "Mid", 200, 4.5, 15)
+    insert(conn, 1, "1", "Cheap", 100, 4.0, 5, orders_count=50)
+    insert(conn, 1, "2", "Mid", 200, 4.5, 15, orders_count=200)
     insert(conn, 1, "3", "Expensive", 300, 5.0, 25)
     conn.commit()
 
@@ -36,9 +36,12 @@ def test_compute_summary_basic_stats():
     assert summary.with_price.mean == 200
     assert summary.total_reviews == 45
     assert summary.missing_shop == 3
+    assert summary.with_orders == 2
+    assert summary.total_orders == 250
 
     assert [p["title"] for p in summary.top_by_reviews] == ["Expensive", "Mid"]
     assert [p["title"] for p in summary.cheapest] == ["Cheap", "Mid"]
+    assert [p["title"] for p in summary.top_by_orders] == ["Mid", "Cheap"]
 
 
 def test_compute_summary_empty_db():
