@@ -2,7 +2,7 @@
 список товаров категории.
 
 Открывает настоящий (не headless) браузер, заходит на страницу категории,
-слушает все POST-запросы/ответы к graphql.umarket.uz и api.umarket.uz, и
+слушает все POST-запросы/ответы к graphql.uzum.uz и api.uzum.uz, и
 для каждого пробует найти в ответе список товаров (parser.find_product_list).
 
 Если находит — автоматически сохраняет ЭТОТ запрос как request_template.json
@@ -21,7 +21,7 @@ from playwright.async_api import Request, async_playwright
 
 from .parser import find_product_list
 
-TARGET_HOSTS = ("graphql.umarket.uz", "api.umarket.uz")
+TARGET_HOSTS = ("graphql.uzum.uz", "api.uzum.uz")
 
 
 @dataclass

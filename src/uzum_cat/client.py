@@ -23,6 +23,18 @@ class TokenExpiredError(RuntimeError):
     pass
 
 
+def _set_nested(body: dict, dotted_path: str, value: int) -> None:
+    """Записывает value по пути вида "queryInput.pagination.offset" внутри
+    body["variables"]. GraphQL-запросы Uzum кладут параметры пагинации не
+    плоско в variables, а вложенно — путь может быть любой глубины.
+    """
+    node = body.setdefault("variables", {})
+    keys = dotted_path.split(".")
+    for k in keys[:-1]:
+        node = node.setdefault(k, {})
+    node[keys[-1]] = value
+
+
 def load_template(path: Path) -> dict:
     if not path.exists():
         sys.exit(
@@ -44,9 +56,7 @@ def iter_products(template: dict, config: HarvestConfig) -> Iterator[list[dict]]
 
     offset = 0
     for page_num in range(config.max_pages):
-        variables = body.get("variables", {})
-        variables[config.pagination_field] = offset
-        body["variables"] = variables
+        _set_nested(body, config.pagination_field, offset)
 
         resp = requests.post(url, headers=headers, json=body, timeout=config.request_timeout)
 

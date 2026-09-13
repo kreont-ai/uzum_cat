@@ -16,8 +16,11 @@ DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 @dataclass
 class HarvestConfig:
-    pagination_field: str = "offset"
-    page_size: int = 24
+    # Путь до поля offset внутри variables запроса (через точку — см. README).
+    # По умолчанию соответствует реальному запросу MakeSearch_ItemsAndFilters
+    # graphql.uzum.uz, пойманному через `uzum-cat discover`.
+    pagination_field: str = "queryInput.pagination.offset"
+    page_size: int = 48
     max_pages: int = 40
     delay_seconds: float = 3.0
     request_timeout: float = 20.0
